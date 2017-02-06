@@ -105,22 +105,6 @@ define(function(require) {
   };
 
   /**
-   * Get an absolute URI on the sandbug domain
-   *
-   * @param {String} path - relative or absolute URI
-   * @return {String} absolute URI
-   */
-  utils.uri = function(path) {
-    path = utils.ensure_string(path);
-
-    if (_.str.startsWith(path, config.root)) {
-      return path;
-    }
-
-    return config.root + path;
-  };
-
-  /**
    * Get the extension of a URI or filename
    *
    * @param {String} uri - URI or filename

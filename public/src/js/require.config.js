@@ -18,6 +18,7 @@
 
     paths: {
       promise: 'plugins/requirejs-promise',
+      proximal: '//cdn.rawgit.com/gavinhungry/proximal/1.0.1/proximal',
 
       // libraries
       jqueryjs: '//cdn.jsdelivr.net/jquery/3.1/jquery.min',

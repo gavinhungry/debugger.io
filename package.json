@@ -19,25 +19,26 @@
   },
 
   "dependencies": {
-    "body-parser": "1.16.x",
+    "body-parser": "1.17.x",
     "cjson": "0.5.x",
     "connect-mobile-detection": "0.0.x",
     "consolidate": "0.14.x",
     "cookie-parser": "1.4.x",
     "cookie-session": "1.2.x",
-    "express": "4.14.x",
+    "express": "4.15.x",
     "js-schema": "1.0.x",
     "mongojs": "2.4.x",
     "passport": "0.3.x",
     "passport-local": "1.0.x",
-    "q": "1.4.x",
+    "proximal": "1.1.x",
+    "q": "1.5.x",
     "requirejs": "2.3.x",
-    "rudiment": "1.0.x",
+    "rudiment": "2.1.x",
     "scrypt": "6.0.x",
     "seasurf": "0.1.x",
     "underscore": "1.8.x",
     "underscore-deep-extend": "1.1.x",
     "underscore.string": "3.3.x",
-    "validator": "6.2.x"
+    "validator": "7.0.x"
   }
 }

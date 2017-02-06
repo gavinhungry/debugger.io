@@ -266,7 +266,7 @@ define(function(require) {
           return flash.message_bad('@password_mismatch');
         }
 
-        if (this.$password.val().length < 8) {
+        if (this.$password.val().length < 4) {
           return flash.message_bad('@invalid_password');
         }
 

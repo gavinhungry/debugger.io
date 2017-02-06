@@ -61,10 +61,9 @@ define(function(require) {
    * Get an object of JSON from a directory
    *
    * @param {String} dir - directory path relative to sandbug root
-   * @param {String} [prop] - property name to be returned as value
    * @return {Promise}
    */
-  utils.dir_json = _.memoize(function(dir, prop) {
+  utils.dir_json = _.memoize(function(dir) {
     var d = Q.defer();
 
     var root = path.resolve('.');
@@ -89,8 +88,6 @@ define(function(require) {
         }
 
         var jsonId = _.str.strLeftBack(json, '.');
-
-        if (prop) { data = utils.reduce(prop, data); }
 
         return [jsonId, data];
       }).object().value();

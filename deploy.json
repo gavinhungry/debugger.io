@@ -3,16 +3,12 @@
     "port": 10081
   },
 
-    // database
-  "db": {
-    "name": "sandbug",
-    "user": "sandbug",
-    "pass": "sandbug",
-    "host": "localhost"
-  },
-
   // sessions
   "auth": {
     "secret": "foobar"
+  },
+
+  "db": {
+    "db": "sandbug"
   }
 }

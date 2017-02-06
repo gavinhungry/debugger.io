@@ -12,7 +12,10 @@ define(function(require) {
   // ---
 
   delete window.__sandbug;
-  if (!config.prod) { window.config = config; }
+  if (!config.prod) {
+    window.config = config;
+  }
+
   return config;
 });
 
@@ -21,11 +24,16 @@ define('config_p', function(require) {
 
   var $ = require('jquery');
   var _ = require('underscore');
+  var proximal = require('proximal');
 
   // ---
 
   var config = Object.create(null, {
     _priv: { value: Object.create(null) }
+  });
+
+  config._priv.rpc = new proximal.Client({
+    url: '/rpc'
   });
 
   var locals = window.__sandbug || {};
@@ -36,7 +44,6 @@ define('config_p', function(require) {
   // default options
   var options = {
     github: 'https://github.com/gavinhungry/sandbug',
-    root: _.str.sprintf('%s//%s/', protocol, hostname),
     frame: _.str.sprintf('%s//frame.%s', protocol, hostname),
     username: locals.username,
     csrf: locals.csrf,
@@ -121,20 +128,14 @@ define('config_p', function(require) {
     }
   });
 
-  // get additional client-side config options from the server
-  var d = $.Deferred();
-  $.get('/api/config').done(function(data) {
+  return config._priv.rpc.getModule('config').getConfig().then(client => {
     if ($(window).width() < 1280) {
-      config._priv.set_option('default_layout', data.default_compact_layout);
+      config._priv.set_option('default_layout', client.default_compact_layout);
     }
 
-    config._priv.set_options(data);
-    config._priv.set_option('default_locale', data.locale);
+    config._priv.set_options(client);
+    config._priv.set_option('default_locale', client.locale);
 
-    d.resolve(config);
-  }).fail(function() {
-    d.resolve(config);
+    return config;
   });
-
-  return d.promise();
 });

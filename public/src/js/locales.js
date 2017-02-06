@@ -12,6 +12,7 @@ define(function(require) {
   var bus    = require('bus');
   var config = require('config');
   var utils  = require('utils');
+  var rpc    = require('rpc');
 
   var observers = require('observers');
 
@@ -40,31 +41,6 @@ define(function(require) {
   });
 
   /**
-   * Load locales, extending the base locale, into cache
-   *
-   * @param {String | Array} - locale(s) to load
-   */
-  locales.load = function(ids) {
-    _.each(utils.ensure_array(ids), function(id) {
-      id = utils.sanitize_resource_id(id);
-      if (!id || cache[id]) { return; }
-
-      var localeUri = _.str.sprintf('%s/%s.json', dir, id);
-      if (!config.prod) { localeUri += '?v=' + (new Date()).getTime(); }
-
-      cache[id] = $.getJSON(localeUri).then(function(locale, status, xhr) {
-        if (id !== config.base_locale) {
-          return locales.get(config.base_locale).then(function(baseLocale) {
-            return _.extend(baseLocale, locale);
-          });
-        }
-
-        return locale;
-      });
-    });
-  };
-
-  /**
    * Make sure a locale is loaded (either from cache or the server),
    * then return a promise to return extended locale
    *
@@ -72,20 +48,14 @@ define(function(require) {
    * @return {Promise} promise to return the extended locale
    */
   locales.get = function(id) {
-    id = utils.sanitize_resource_id(id);
-    locales.load(id);
+    if (cache[id]) {
+      return cache[id].then(utils.clone);
+    }
 
-    return cache[id].then(function(locale) {
-      return utils.clone(locale);
-    });
-  };
+    console.debug('Getting LOCALE FROM SERVER!!!!!!', id);
+    cache[id] = rpc.getModule('locales').getLocale(id);
 
-  /**
-   * Flush the entire locale cache, forcing the next call to locales.load or
-   * locales.get to fetch a fresh version of the locale
-   */
-  locales.flush = function() {
-    cache = {};
+    return locales.get(id);
   };
 
   /**
@@ -100,7 +70,7 @@ define(function(require) {
 
     var args = _.rest(arguments);
 
-    locales.get(config.locale).done(function(locale) {
+    locales.get(config.locale).then(function(locale) {
       var str = (locale.strings && strId) ? locale.strings[strId] : null;
       if (!str) {
         locales.console.warn(_.str.sprintf('No %s locale string: %s', config.locale, strId));
@@ -121,7 +91,7 @@ define(function(require) {
       var formattedStr = _.str.sprintf.apply(null, sprintfArgs);
       sync[strId] = formattedStr; // sprintfArgs are not cached
       d.resolve(formattedStr);
-    }).fail(function(err) {
+    }, function(err) {
       d.reject(null);
     });
 

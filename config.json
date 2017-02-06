@@ -7,11 +7,6 @@
     "port": 8080
   },
 
-  "db": {
-    // add database credentials to deploy.json
-    "port": 27017
-  },
-
   "auth": {
     // add session secret key to deploy.json
     "cookie": "session",
@@ -21,7 +16,6 @@
     "maxtime": 0.3
   },
 
-  // available to clients as GET /api/config
   "client": {
     // Default panel layout
     // One of: [layout-cols, layout-top, layout-left]

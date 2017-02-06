@@ -13,50 +13,52 @@ define(function(require) {
   var cookieParser  = require('cookie-parser');
   var cookieSession = require('cookie-session');
   var crypto        = require('crypto');
-  var db            = require('db');
   var local         = require('passport-local');
   var passport      = require('passport');
-  var Q             = require('q');
+  var rethinkdb     = require('rethinkdbdash')(config.db);
   var Rudiment      = require('rudiment');
   var schema        = require('js-schema');
   var scrypt        = require('scrypt');
   var seasurf       = require('seasurf');
   var validator     = require('validator');
 
-  var module    = require('module');
-  var path      = require('path');
-  var __dirname = path.dirname(module.uri);
-
   // ---
 
-  var auth = {};
+  var auth = {
+    users: {}
+  };
 
-  auth.crud = new Rudiment({
-    db: db.raw.users,
-    key: 'username',
+  var settingsSchema = {
+    cdn: ['jsdelivr', 'cdnjs', 'google'],
+    layout: ['layout-cols', 'layout-top', 'layout-left'],
+    locale: ['en_US'],
+    theme: ['dark']
+  };
 
-    schema: [schema({
+  auth.users.default_settings = _.mapObject(settingsSchema, _.first)
+
+  auth.users.crud = new Rudiment({
+    db: rethinkdb.table('users'),
+
+    schema: schema({
       username: String,
       email: String,
-      settings: {
-        cdn: ['jsdelivr', 'cdnjs', 'google'],
-        layout: ['layout-cols', 'layout-top', 'layout-left'],
-        locale: ['en_US'],
-        theme: ['dark']
-      }
-    }), function(user) {
-      return auth.is_valid_username(user.username) &&
-        auth.is_valid_email(user.email) &&
-        _.keys(user.settings).length === 4;
-    }],
+      settings: settingsSchema,
+      hash: String
+    }),
+
+    key: 'username',
+
+    in: function(user) {
+      user.settings = _.defaults(user.settings || {}, auth.users.default_settings);
+      // FIXME: check user._, valid password, valid email, valid username
+    },
 
     out: function(user) {
-      delete user._id;
-      delete user.hash;
+      user._ = {};
     }
   });
 
-  // scrypt setup
   var params_p = scrypt.params(config.auth.maxtime);
 
   /**
@@ -65,7 +67,7 @@ define(function(require) {
   auth.init = function(server) {
     passport.serializeUser(function(user, done) {
       var timestamp = utils.timestamp_now();
-      var str = _.str.sprintf('%s-%s', timestamp, user._id);
+      var str = _.str.sprintf('%s-%s', timestamp, user[auth.users.crud._dbType.id]); // FIXME: use getDbIdKey
 
       done(null, str);
     });
@@ -73,34 +75,25 @@ define(function(require) {
     passport.deserializeUser(function(str, done) {
       var split = utils.ensure_string(str).split('-');
       var timestamp = _.first(split);
-      var id = _.last(split);
+      var id = _.rest(split).join('-');
 
       if (auth.timestamp_is_expired(timestamp)) {
         done(null, false, { msg: 'session expired' });
       } else {
-
         // find a user for this session
-        db.get_user_by_id(id, false).then(function(user) {
-          if (user) {
-            done(null, user);
-          } else {
-            done(null, false, { msg: 'invalid login' });
-          }
+        auth.get_user_by_id(id).then(function(user) {
+          done(null, user);
         }, function(err) {
-          done(err, false, { msg: 'authentication error' });
+          done(err, null); // , { msg: 'authentication error' }); FIXME
         });
       }
     });
 
     passport.use(new local.Strategy(function(login, plaintext, done) {
-      auth.get_user_by_login(login, plaintext).then(function(user) {
-        if (user) {
-          done(null, user);
-        } else {
-          done(null, false, { msg: 'invalid login' });
-        }
+      auth.get_user_by_login_and_password(login, plaintext).then(function(user) {
+        done(null, user);
       }, function(err) {
-        done(err, false, { msg: 'authentication error' });
+        done(err, null); // { msg: 'authentication error' } FIXME
       });
     }));
 
@@ -136,11 +129,11 @@ define(function(require) {
    * Generate an scrypt salted hash from a plaintext string
    *
    * @param {String} plaintext - password to hash
-   * @return {Promise} to return salted hash
+   * @return {Promise}
    */
   auth.generate_hash = function(plaintext) {
     if (!_.isString(plaintext) || !plaintext.length) {
-      return utils.reject();
+      return Promise.reject();
     }
 
     return params_p.then(function(params) {
@@ -155,27 +148,64 @@ define(function(require) {
    *
    * @param {String} plaintext - password to check
    * @param {String} hash - scrypt hash to compare to `plaintext`
-   * @return {Promise} to return a boolean (true if hash matches)
+   * @return {Promise}
    */
   auth.verify_hash = function(plaintext, hash) {
-    var d = Q.defer();
-
     if (!_.isString(plaintext) || !plaintext.length) {
-      return utils.resolve(false);
+      return Promise.reject(new Error('No plaintext provided'));
     }
 
     if (!_.isString(hash) || hash.length !== 128) {
-      return utils.resolve(false);
+      return Promise.reject(new Error('No hash or invalid hash provided'));
     }
 
     var kdf = new Buffer(hash, 'base64');
-    scrypt.verifyKdf(kdf, plaintext).then(function(result) {
-      d.resolve(result);
-    }, function(err) {
-      d.resolve(false);
+    return scrypt.verifyKdf(kdf, plaintext).then(function(ok) {
+      if (!ok) {
+        throw new Error(auth.errors.INVALID_PASSWORD);
+      }
     });
+  };
 
-    return d.promise;
+  /**
+   *
+   */
+  auth.login_exists = function(username, email) {
+    return Promise.all([
+      auth.get_user_by_login(username),
+      auth.get_user_by_login(email)
+    ]).then(function(results) {
+      return !!_.find(results);
+    });
+  };
+
+  auth.get_user_by_id = function(id) {
+    return auth.users.crud.read(id);
+  };
+
+  /**
+   *
+   */
+  auth.get_user_by_login = function(login) {
+    var query = {};
+
+    if (_.str.include(login, '@')) {
+      if (!auth.is_valid_email(login)) {
+        return Promise.reject(auth.errors.INVALID_EMAIL);
+      }
+
+      query.email = login;
+    } else {
+      if (!auth.is_valid_username(login)) {
+        return Promise.reject(auth.errors.INVALID_USERNAME);
+      }
+
+      query.username = login;
+    }
+
+    return auth.users.crud.find(query).then(function(users) {
+      return users[0] || null;
+    });
   };
 
   /**
@@ -183,17 +213,20 @@ define(function(require) {
    *
    * @param {String} login - username or email
    * @param {String} plaintext - password to check
-   * @return {Promise} to return a user or false if no matching user found
+   * @return {Promise}
    */
-  auth.get_user_by_login = function(login, plaintext) {
-    return db.get_user_by_login(login, true).then(function(user) {
-      if (!user || user.disabled) {
-        return false;
+  auth.get_user_by_login_and_password = function(login, plaintext) {
+    return auth.get_user_by_login(login).then(function(user) {
+      if (!user) {
+        throw new Error(auth.errors.USER_NOT_FOUND);
       }
 
-      return auth.verify_hash(plaintext, user.hash).then(function(match) {
-        delete user.hash;
-        return match ? user : false;
+      if (user.disabled) {
+        throw new Error(auth.errors.USER_IS_DISABLED);
+      }
+
+      return auth.verify_hash(plaintext, user.hash).then(function() {
+        return user;
       });
     });
   };
@@ -211,51 +244,95 @@ define(function(require) {
     username = _.str.clean(username);
     email = _.str.clean(email);
 
-    if (!auth.is_valid_username(username) || !auth.is_valid_email(email) ||
-      plaintext !== confirm || !auth.is_valid_password(plaintext))
-    {
-      return utils.reject(new utils.ServerStatus(400));
+    if (!auth.is_valid_username) {
+      return Promise.reject(auth.errors.INVALID_USERNAME);
     }
 
-    // check that the login is available first
-    return db.login_exists(username, email).then(function(exists) {
+    if (!auth.is_valid_email) {
+      return Promise.reject(auth.errors.INVALID_EMAIL);
+    }
+
+    if (plaintext !== confirm) {
+      return Promise.reject(auth.errors.PASSWORDS_DO_NOT_MATCH);
+    }
+
+    if (!auth.is_valid_password) {
+      return Promise.reject(auth.errors.INVALID_PASSWORD);
+    }
+
+    return auth.login_exists(username, email).then(function(exists) {
       if (exists) {
-        return utils.reject(new utils.ServerStatus(409));
+        return Promise.reject(auth.errors.USERNAME_OR_EMAIL_EXISTS);
       }
 
       return auth.generate_hash(plaintext).then(function(hash) {
-        return db.create_user(username, email, hash);
+        return auth.users.crud.create({
+          username: username,
+          email: email,
+          hash: hash
+        });
       });
     });
   };
 
   /**
    * Change the password for a user
-   * @param {String} username
+   * @param {String} login - username or email
    * @param {String} current - current plaintext password
    * @param {String} plaintext - new plaintext password
    * @param {String} confirm - new plaintext password confirmation
    * @return {Promise}
    */
-  auth.change_password = function(username, current, plaintext, confirm) {
+  auth.change_password_for_login = function(login, current, plaintext, confirm) {
+    return auth.get_user_by_login(login).then(function(user) {
+      user._.password = {
+        current: current,
+        plaintext: plaintext,
+        confirm: confirm
+      };
+
+      return auth.users.crud.update(user); // FIXME: needs Rudiment support
+    });
+
+
+
     username = _.str.clean(username);
 
-    if (!auth.is_valid_username(username) || plaintext !== confirm ||
-      !auth.is_valid_password(plaintext))
-    {
-      return utils.reject(new utils.ServerStatus(400));
+    if (!auth.is_valid_username) {
+      return Promise.reject(auth.errors.INVALID_USERNAME);
     }
 
-    return auth.get_user_by_login(username, current).then(function(user) {
-      if (!user) {
-        return utils.reject(new utils.ServerStatus(403));
-      }
+    if (plaintext !== confirm) {
+      return Promise.reject(auth.errors.PASSWORDS_DO_NOT_MATCH);
+    }
 
+    if (!auth.is_valid_password) {
+      return Promise.reject(auth.errors.INVALID_PASSWORD);
+    }
+
+    return auth.get_user_by_login_and_password(username, current).then(function(user) {
       return auth.generate_hash(plaintext).then(function(hash) {
         return db.change_password_hash(username, hash);
       });
     });
   };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   /**
    * Determine if a session timestamp is expired
@@ -288,8 +365,8 @@ define(function(require) {
    * @return {Boolean} true if username is valid, false otherwise
    */
   auth.is_valid_username = function(username) {
-    return auth.sanitize_username(username) ===
-      username && username.length >= 3 && username.length <= 64;
+    return auth.sanitize_username(username) === username &&
+      username.length >= 3 && username.length <= 64;
   };
 
   /**
@@ -306,14 +383,14 @@ define(function(require) {
    * Test for a valid password
    *
    * The only requirements for a valid password are that it must contain at
-   * least one non-whitespace character, be at least 8 characters and at most
-   * 1024 characters.  Users are free to shoot themselves in the foot.
+   * least one non-whitespace character, be at least 4 characters and at most
+   * 1024 characters.  Users are otherwise free to shoot themselves in the foot.
    *
    * @param {String} plaintext - a string to treat as password input
    * @return {Boolean} true if password is valid, false otherwise
    */
   auth.is_valid_password = function(plaintext) {
-    return _.isString(plaintext) && /^(?=.*\S).{8,1024}$/.test(plaintext);
+    return _.isString(plaintext) && /^(?=.*\S).{4,1024}$/.test(plaintext);
   };
 
   return auth;

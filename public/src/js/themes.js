@@ -74,6 +74,10 @@ define(function(require) {
    * @param {String} id - theme id to set
    */
   themes.set_theme = function(id) {
+    if (!id) {
+      return;
+    }
+
     if (!_.some(theme_map, function(theme) { return theme.id === id; })) {
       return themes.set_theme(config.default_theme);
     }

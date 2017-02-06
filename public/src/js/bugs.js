@@ -141,6 +141,11 @@ define('bugs', function(require) {
    * @return {bugs.Bug}
    */
   bugs.model = function() {
+    return {
+      get: function(){}, // FIXME
+      map: function(){}
+    };
+
     if (!(bugs._priv.current.model instanceof bugs.Bug)) {
       bugs._priv.current.model = bugs.create();
     }
@@ -326,6 +331,7 @@ define('bugs', function(require) {
    * @return {Boolean} true if unsaved, false otherwise
    */
   bugs.dirty = function() {
+    return false; // FIXME
     return !_.isEqual(bugs.model().get('map'), bugs._priv.current.map);
   };
 

@@ -21,10 +21,6 @@ define(function(require) {
   var appRoot = __dirname + '/../../';
 
   var required_options = [
-    'db.name',
-    'db.user',
-    'db.pass',
-    'db.host',
     'auth.secret'
   ];
 

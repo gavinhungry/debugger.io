@@ -46,7 +46,7 @@
     "invalid_email":              "Invalid email address",
     "invalid_form":               "Invalid form data",
     "invalid_password":           "Invalid password",
-    "invalid_password_msg":       "Passwords must be at least 8 characters.",
+    "invalid_password_msg":       "Passwords must be at least 4 characters.",
     "invalid_settings":           "Invalid user settings",
     "invalid_settings_msg":       "The user settings provided are invalid and have not been saved.",
     "invalid_username":           "Invalid username",

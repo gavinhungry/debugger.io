@@ -41,7 +41,10 @@ server {
   listen 80;
   server_name sandbug.example.tld;
 
-  location / { proxy_pass http://127.0.0.1:8080; }
+  location / {
+    proxy_pass http://127.0.0.1:8080;
+  }
+
   location ~* ^(/test/?|.+\.(html|js|css|woff|png|jpg|gif|ico|txt|json))$ {
     root /srv/http/sandbug/public;
   }
