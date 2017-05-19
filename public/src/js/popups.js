@@ -22,6 +22,9 @@ define(function(require) {
   var templates = require('templates');
   var themes    = require('themes');
   var user      = require('user');
+  var rpc       = require('rpc');
+
+  let auth = rpc.getModule('auth');
 
   // ---
 
@@ -250,8 +253,7 @@ define(function(require) {
     initialize: function(options) {
       superViewInit(this, arguments);
 
-      this.on('submit', function(form) {
-        var that = this;
+      this.on('submit', form => {
         var $form = $(form);
 
         if (this.$username.val().length < 3) {
@@ -270,16 +272,16 @@ define(function(require) {
           return flash.message_bad('@invalid_password');
         }
 
-        utils.submit_form($form).then(function(username) {
+        auth.createUser(utils.form_map(form)).then(username => {
           bus.trigger('user:login', username);
-          that.destroy();
-        }, function(xhr, status, err) {
-          switch(xhr.statusCode().status) {
-            case 400: flash.message_bad('@invalid_form'); break;
-            case 409: flash.message_bad('@user_exists'); break;
-            default: flash.xhr_error(xhr, status, err);
-          }
-       });
+          this.destroy();
+        }, err => {
+          alert(err);
+
+          //   case 400: flash.message_bad('@invalid_form'); break;
+          //   case 409: flash.message_bad('@user_exists'); break;
+          //   default: flash.xhr_error(xhr, status, err);
+        });
       });
     },
 
@@ -415,8 +417,7 @@ define(function(require) {
 
       this.on('submit', function(form) {
 
-        var $form = $(form);
-        var map = utils.form_map($form);
+        var map = utils.form_map(form);
         map.private = !!map.private;
 
         var save = function() {
@@ -570,8 +571,7 @@ define(function(require) {
     view.on('destroy', d.reject);
 
     view.on('submit', function(form) {
-      var $form = $(form);
-      var map = utils.form_map($form);
+      var map = utils.form_map(form);
 
       _.each(_.keys(map), function(prop) {
         if (_.first(prop) === '_') { delete map[prop]; }

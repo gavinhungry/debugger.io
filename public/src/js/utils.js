@@ -318,32 +318,14 @@ define(function(require) {
   };
 
   /**
-   * Submit a form with jQuery and return its promise
-   *
-   * @param {jQuery} $form - form element
-   * @return {Promise} from $.ajax
-   */
-  utils.submit_form = function($form) {
-    $form = utils.ensure_jquery($form);
-
-    var uri = $form.attr('action');
-    var data = utils.form_map($form);
-
-    var method = utils.ensure_string($form.attr('method')) || 'get';
-    return $.ajax({
-      method: method,
-      url: uri,
-      data: data
-    });
-  };
-
-  /**
    * Convert a form to a map
    *
-   * @param {jQuery} $form
+   * @param {HTMLElement} form
    * @return {Object}
    */
-  utils.form_map = function($form) {
+  utils.form_map = function(form) {
+    let $form = $(form);
+
     return _.reduce($form.serializeArray(), function(obj, prop) {
 
       var $input = $form.find(_.str.sprintf('[name="%s"]', prop.name)).first();

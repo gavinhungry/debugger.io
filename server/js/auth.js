@@ -234,38 +234,39 @@ define(function(require) {
   /**
    * Create a new user with a plaintext password
    *
-   * @param {String} username - requested username
-   * @param {String} email - requested email address
-   * @param {String} plaintext - plaintext password
-   * @param {String} confirm - plaintext password confirmation
+   * @param {Object} user
+   * @param {String} user.username - requested username
+   * @param {String} user.email - requested email address
+   * @param {String} user.password - plaintext password
+   * @param {String} user.confirm - plaintext password confirmation
    * @return {Promise} resolves to new user record on success
    */
-  auth.create_user = function(username, email, plaintext, confirm) {
-    username = _.str.clean(username);
-    email = _.str.clean(email);
+  auth.create_user = function(user = {}) {
+    let username = _.str.clean(user.username);
+    let email = _.str.clean(user.email);
 
-    if (!auth.is_valid_username) {
-      return Promise.reject(auth.errors.INVALID_USERNAME);
+    if (!auth.is_valid_username(username)) {
+      throw new Error('invalid username');
     }
 
-    if (!auth.is_valid_email) {
-      return Promise.reject(auth.errors.INVALID_EMAIL);
+    if (!auth.is_valid_email(email)) {
+      throw new Error('invalid email');
     }
 
-    if (plaintext !== confirm) {
-      return Promise.reject(auth.errors.PASSWORDS_DO_NOT_MATCH);
+    if (user.password !== user.confirm) {
+      throw new Error('passwords do not match');
     }
 
-    if (!auth.is_valid_password) {
-      return Promise.reject(auth.errors.INVALID_PASSWORD);
+    if (!auth.is_valid_password(user.password)) {
+      throw new Error('invalid password');
     }
 
     return auth.login_exists(username, email).then(function(exists) {
       if (exists) {
-        return Promise.reject(auth.errors.USERNAME_OR_EMAIL_EXISTS);
+        throw new Error('username or email already exists');
       }
 
-      return auth.generate_hash(plaintext).then(function(hash) {
+      return auth.generate_hash(user.password).then(function(hash) {
         return auth.users.crud.create({
           username: username,
           email: email,

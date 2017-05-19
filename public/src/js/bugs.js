@@ -55,7 +55,8 @@ define('bugs', function(require) {
     });
 
     bus.on('mirrors:content', function(panel, content) {
-      bugs.model().set(_.str.sprintf('map.%s.content', panel), content);
+      // FIXME
+      // bugs.model().set(_.str.sprintf('map.%s.content', panel), content);
     });
 
     keys.register_handler({ ctrl: true, key: 's' }, function(e) {

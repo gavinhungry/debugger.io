@@ -15,8 +15,6 @@ define(require => {
   const config = require('config');
   const utils = require('utils');
 
-  const locales = require('rpc/locales');
-
   const module = require('module');
   const path = require('path');
   const __dirname = path.dirname(module.uri);
@@ -45,8 +43,9 @@ define(require => {
 
   let rpc = new proximal.Server({
     modules: {
-      config: { getConfig: () => config.client },
-      locales
+      config: require('rpc/config'),
+      locales: require('rpc/locales'),
+      auth: require('rpc/auth')
     }
   });
 
