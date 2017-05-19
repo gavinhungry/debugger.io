@@ -19,7 +19,6 @@
     <link rel='stylesheet' type='text/css' href='/css/sandbug.<%- theme %>.min.css<%- (prod && rev) ? '?v=' + rev : '' %>'><% }); %>
     <script type='application/javascript'>
       window.__sandbug = {
-        csrf: '<%- csrf %>',
         mode: <%= JSON.stringify(mode) %>,
         username: <% if (username) { %>"<%- username %>"<% } else { %>null<% } %>
       };

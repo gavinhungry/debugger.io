@@ -9,17 +9,11 @@ define(function(require) {
   var config = require('config');
   var utils  = require('utils');
 
-  var bodyParser    = require('body-parser');
-  var cookieParser  = require('cookie-parser');
-  var cookieSession = require('cookie-session');
   var crypto        = require('crypto');
-  var local         = require('passport-local');
-  var passport      = require('passport');
   var rethinkdb     = require('rethinkdbdash')(config.db);
   var Rudiment      = require('rudiment');
   var schema        = require('js-schema');
   var scrypt        = require('scrypt');
-  var seasurf       = require('seasurf');
   var validator     = require('validator');
 
   // ---
@@ -60,60 +54,6 @@ define(function(require) {
   });
 
   var params_p = scrypt.params(config.auth.maxtime);
-
-  /**
-   * @param {Express} server - Express server to init auth methods on
-   */
-  auth.init = function(server) {
-    passport.serializeUser(function(user, done) {
-      var timestamp = utils.timestamp_now();
-      var str = _.str.sprintf('%s-%s', timestamp, user[auth.users.crud._dbType.id]); // FIXME: use getDbIdKey
-
-      done(null, str);
-    });
-
-    passport.deserializeUser(function(str, done) {
-      var split = utils.ensure_string(str).split('-');
-      var timestamp = _.first(split);
-      var id = _.rest(split).join('-');
-
-      if (auth.timestamp_is_expired(timestamp)) {
-        done(null, false, { msg: 'session expired' });
-      } else {
-        // find a user for this session
-        auth.get_user_by_id(id).then(function(user) {
-          done(null, user);
-        }, function(err) {
-          done(err, null); // , { msg: 'authentication error' }); FIXME
-        });
-      }
-    });
-
-    passport.use(new local.Strategy(function(login, plaintext, done) {
-      auth.get_user_by_login_and_password(login, plaintext).then(function(user) {
-        done(null, user);
-      }, function(err) {
-        done(err, null); // { msg: 'authentication error' } FIXME
-      });
-    }));
-
-    server.use(bodyParser.json());
-    server.use(bodyParser.urlencoded({ extended: true }));
-    server.use(cookieParser());
-    server.use(cookieSession({
-      secret: config.auth.secret,
-      key: config.auth.cookie
-    }));
-
-    server.use(passport.initialize());
-    server.use(passport.session());
-
-    server.use(seasurf({
-      paths: ['/api/']
-    }));
-  };
-
-  auth.authenticate = passport.authenticate('local');
 
   /**
    * Hashes a plaintext string with SHA-512

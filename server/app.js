@@ -6,6 +6,7 @@ define(require => {
   'use strict';
 
   const _ = require('underscore');
+  const bodyParser = require('body-parser');
   const cons = require('consolidate');
   const express = require('express');
   const mobile = require('connect-mobile-detection');
@@ -21,7 +22,9 @@ define(require => {
 
   let app = {};
   let api = express();
-  auth.init(api);
+
+  api.use(bodyParser.json());
+  api.use(bodyParser.urlencoded({ extended: true }));
 
   api.use(mobile());
   api.engine('html', cons.underscore);
@@ -35,7 +38,6 @@ define(require => {
       prod: config.prod,
       rev: config.build.rev,
       username: auth.sanitize_username(user.username),
-      csrf: req.csrfToken(),
       mode: { mobile: !!req.mobile, phone: !!req.phone, tablet: !!req.tablet },
       themes: config.themes
     });
