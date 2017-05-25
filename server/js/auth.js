@@ -10,6 +10,7 @@ define(require => {
   const utils = require('utils');
 
   const crypto = require('crypto');
+  const jwt = require('jsonwebtoken');
   const rethinkdb = require('rethinkdbdash')(config.db);
   const Rudiment = require('rudiment');
   const schema = require('js-schema');
@@ -86,6 +87,45 @@ define(require => {
   };
 
   /**
+   * Generate a signed token for a payload
+   *
+   * @param {Object} payload
+   * @return {Promise<String>} JSON web token
+   */
+  auth.genToken = payload => {
+    return new Promise((res, rej) => {
+      jwt.sign(payload, config.auth.secret, {
+        algorithm: 'HS512',
+        expiresIn: '7d'
+      }, (err, token) => {
+        if (err) {
+          return rej(new Error('could not sign payload'));
+        }
+
+        res(token);
+      });
+    });
+  };
+
+  /**
+   * Get the verified payload from a token
+   *
+   * @param {String} token
+   * @return {Promise<Object>}
+   */
+  auth.authenticateToken = token => {
+    return new Promise((res, rej) => {
+      jwt.verify(token, config.auth.secret, (err, payload) => {
+        if (err) {
+          return rej(new Error('could not verify token payload'));
+        }
+
+        res(payload);
+      });
+    });
+  };
+
+  /**
    * Clean up a potential username string
    *
    * @param {String} username
@@ -134,62 +174,6 @@ define(require => {
   auth.isValidPassword = plaintext => _.isString(plaintext) && /^(?=.*\S).{4,512}$/.test(plaintext);
 
   /**
-   * Get an unauthenticated user from a login (username or email)
-   *
-   * @param {String} login
-   * @return {Promise<Object>}
-   */
-  auth.getUnauthenticatedUser = login => {
-    if (!auth.isValidLogin(login)) {
-      return Promise.reject(new Error('invalid login'));
-    }
-
-    return auth.users.crud.find({
-      [_.str.include(login, '@') ? 'email' : 'username']: login
-    }).then(users => {
-      if (!users || !users.length) {
-        throw new Error('invalid login');
-      }
-
-      return _.first(users);
-    });
-  };
-
-  /**
-   * Check if any username or email already exists in the database
-   *
-   * @param {Array<String>} logins
-   * @return {Promise<Boolean>} true if any login exists, false otherwise
-   */
-  auth.loginExists = logins => {
-    let users = utils.ensure_array(logins).map(auth.getUnauthenticatedUser);
-    return Promise.all(users).then(res => !!_.find(res));
-  };
-
-  /**
-   * Get an authenticated user from a login and password
-   *
-   * @param {String} login
-   * @param {String} password
-   * @return {Promise<Object>}
-   */
-  auth.getAuthenticatedUser = (login, password) => {
-    return auth.getUnauthenticatedUser(login).then(user => {
-      if (!user) {
-        throw new Error('invalid credentials');
-      }
-
-      return auth.verifyHash(password, user.hash).then(authenticated => {
-        if (!authenticated) {
-          throw new Error('invalid credentials');
-        }
-
-        return user;
-      });
-    });
-  };
-
-  /**
    * Create a new user with a plaintext password
    *
    * @param {String} username - requested username
@@ -215,7 +199,7 @@ define(require => {
     }
 
     if (!auth.isValidPassword(password)) {
-      throw new Error('invalid password');
+      return Promise.reject(new Error('invalid password'));
     }
 
     return auth.loginExists([username, email]).then(exists => {
@@ -229,6 +213,64 @@ define(require => {
           email: email,
           hash: hash
         });
+      });
+    });
+  };
+
+  /**
+   * Check if any username or email already exists in the database
+   *
+   * @param {Array<String>} logins
+   * @return {Promise<Boolean>} true if any login exists, false otherwise
+   */
+  auth.loginExists = logins => {
+    let users = utils.ensure_array(logins)
+      .map(auth.getUnauthenticatedUser).map(p => p.catch(e => null));
+
+    return Promise.all(users).then(res => !!_.find(res));
+  };
+
+  /**
+   * Get an unauthenticated user from a login (username or email)
+   *
+   * @param {String} login
+   * @return {Promise<Object>}
+   */
+  auth.getUnauthenticatedUser = login => {
+    if (!auth.isValidLogin(login)) {
+      return Promise.reject(new Error('invalid login'));
+    }
+
+    return auth.users.crud.find({
+      [_.str.include(login, '@') ? 'email' : 'username']: login
+    }).then(users => {
+      if (!users || !users.length) {
+        throw new Error('invalid login');
+      }
+
+      return _.first(users);
+    });
+  };
+
+  /**
+   * Get an authenticated user from a login and password
+   *
+   * @param {String} login
+   * @param {String} password
+   * @return {Promise<Object>}
+   */
+  auth.getAuthenticatedUser = (login, password) => {
+    return auth.getUnauthenticatedUser(login).then(user => {
+      if (!user) {
+        throw new Error('invalid credentials');
+      }
+
+      return auth.verifyHash(password, user.hash).then(authenticated => {
+        if (!authenticated) {
+          throw new Error('invalid credentials');
+        }
+
+        return user;
       });
     });
   };

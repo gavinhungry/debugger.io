@@ -7,16 +7,31 @@ define(require => {
 
   const auth = require('auth');
 
-  let createUser = req => {
-    return auth.createUser(req.username, req.email, req.password, req.confirm).then(user => {
-      return user.username;
+  let _authenticatedUserResponse = user => {
+    return auth.genToken({
+      username: user.username
+    }).then(token => {
+      return {
+        token,
+        user: {
+          username: user.username,
+          email: user.email,
+          settings: user.settings
+        }
+      }
     });
   };
 
-  let authenticateUser = req => {
-    return auth.getAuthenticatedUser(req.login, req.password).then(user => user.username);
-  };
+  let createUser = form => auth.createUser(form.username, form.email, form.password, form.confirm)
+    .then(_authenticatedUserResponse);
 
-  return { createUser, authenticateUser };
+  let authenticateUser = form => auth.getAuthenticatedUser(form.login, form.password)
+    .then(_authenticatedUserResponse);
+
+  let authenticateToken = token => auth.authenticateToken(token)
+    .then(payload => auth.getUnauthenticatedUser(payload.username))
+    .then(_authenticatedUserResponse);
+
+  return { createUser, authenticateUser, authenticateToken };
 
 });
