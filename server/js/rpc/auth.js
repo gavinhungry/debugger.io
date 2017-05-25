@@ -7,8 +7,10 @@ define(require => {
 
   const auth = require('auth');
 
-  let createUser = form => auth.create_user(form).then(user => user.username);
+  let signUp = form => auth.createUser(form).then(user => {
+    return user.username;
+  });
 
-  return { createUser };
+  return { signUp };
 
 });

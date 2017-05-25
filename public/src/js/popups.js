@@ -272,7 +272,7 @@ define(function(require) {
           return flash.message_bad('@invalid_password');
         }
 
-        auth.createUser(utils.form_map(form)).then(username => {
+        auth.signUp(utils.form_map(form)).then(username => {
           bus.trigger('user:login', username);
           this.destroy();
         }, err => {

@@ -2,34 +2,32 @@
  * sandbug: An interactive web scripting sandbox
  */
 
-define(function(require) {
+define(require => {
   'use strict';
 
-  var _      = require('underscore');
-  var config = require('config');
-  var utils  = require('utils');
+  const _ = require('underscore');
+  const config = require('config');
+  const utils = require('utils');
 
-  var crypto        = require('crypto');
-  var rethinkdb     = require('rethinkdbdash')(config.db);
-  var Rudiment      = require('rudiment');
-  var schema        = require('js-schema');
-  var scrypt        = require('scrypt');
-  var validator     = require('validator');
+  const crypto = require('crypto');
+  const rethinkdb = require('rethinkdbdash')(config.db);
+  const Rudiment = require('rudiment');
+  const schema = require('js-schema');
+  const scrypt = require('scrypt');
+  const validator = require('validator');
 
-  // ---
+  let auth = {};
 
-  var auth = {
-    users: {}
-  };
-
-  var settingsSchema = {
+  let settingsSchema = {
     cdn: ['jsdelivr', 'cdnjs', 'google'],
     layout: ['layout-cols', 'layout-top', 'layout-left'],
     locale: ['en_US'],
     theme: ['dark']
   };
 
-  auth.users.default_settings = _.mapObject(settingsSchema, _.first)
+  auth.users = {
+    defaultSettings: _.mapObject(settingsSchema, _.first)
+  };
 
   auth.users.crud = new Rudiment({
     db: rethinkdb.table('users'),
@@ -43,132 +41,123 @@ define(function(require) {
 
     key: 'username',
 
-    in: function(user) {
-      user.settings = _.defaults(user.settings || {}, auth.users.default_settings);
+    in: user => {
+      user.settings = _.defaults(user.settings || {}, auth.users.defaultSettings);
       // FIXME: check user._, valid password, valid email, valid username
     },
 
-    out: function(user) {
+    out: user => {
       user._ = {};
     }
   });
 
-  var params_p = scrypt.params(config.auth.maxtime);
+  let params_p = scrypt.params(config.auth.maxtime);
 
   /**
-   * Hashes a plaintext string with SHA-512
+   * Generate an SHA-512 hash from a plaintext string
    *
    * @param {String} plaintext - plaintext string to hash
-   * @return {String} hex-encoded hash
+   * @return {String}
    */
-  auth.sha512 = function(plaintext) {
-    return crypto.createHash('sha512').update(plaintext).digest('hex');
-  };
+  auth.sha512 = plaintext => crypto.createHash('sha512').update(plaintext).digest('hex');
 
   /**
    * Generate an scrypt salted hash from a plaintext string
    *
-   * @param {String} plaintext - password to hash
-   * @return {Promise}
+   * @param {String} plaintext - plaintext string to hash
+   * @return {Promise<String>}
    */
-  auth.generate_hash = function(plaintext) {
-    if (!_.isString(plaintext) || !plaintext.length) {
-      return Promise.reject();
-    }
-
-    return params_p.then(function(params) {
-      return scrypt.kdf(plaintext, params).then(function(buf) {
-        return buf.toString('base64');
-      });
+  auth.scrypt = (plaintext = '') => {
+    return params_p.then(params => {
+      return scrypt.kdf(plaintext, params).then(buf => buf.toString('base64'));
     });
   };
 
   /**
-   * Verify a plaintext string against an scrypt hash
+   * Verify a plaintext string against an scrypt salted hash
    *
-   * @param {String} plaintext - password to check
+   * @param {String} plaintext
    * @param {String} hash - scrypt hash to compare to `plaintext`
-   * @return {Promise}
+   * @return {Promise<Boolean>}
    */
-  auth.verify_hash = function(plaintext, hash) {
-    if (!_.isString(plaintext) || !plaintext.length) {
-      return Promise.reject(new Error('No plaintext provided'));
-    }
-
-    if (!_.isString(hash) || hash.length !== 128) {
-      return Promise.reject(new Error('No hash or invalid hash provided'));
-    }
-
-    var kdf = new Buffer(hash, 'base64');
-    return scrypt.verifyKdf(kdf, plaintext).then(function(ok) {
-      if (!ok) {
-        throw new Error(auth.errors.INVALID_PASSWORD);
-      }
-    });
+  auth.verifyHash = (plaintext = '', hash = '') => {
+    let kdf = new Buffer(hash, 'base64');
+    return scrypt.verifyKdf(kdf, plaintext);
   };
 
   /**
+   * Clean up a potential username string
    *
+   * @param {String} username
+   * @return {String}
    */
-  auth.login_exists = function(username, email) {
-    return Promise.all([
-      auth.get_user_by_login(username),
-      auth.get_user_by_login(email)
-    ]).then(function(results) {
-      return !!_.find(results);
-    });
-  };
-
-  auth.get_user_by_id = function(id) {
-    return auth.users.crud.read(id);
-  };
+  auth.cleanUsername = username =>
+    utils.ensure_string(username).toLowerCase().replace(/[^a-z0-9_]/ig, '');
 
   /**
+   * Test for a valid username
    *
+   * @param {String} username
+   * @return {Boolean}
    */
-  auth.get_user_by_login = function(login) {
-    var query = {};
+  auth.isValidUsername = username =>
+    auth.cleanUsername(username) === username &&
+    username.length >= 3 &&
+    username.length <= 64;
 
-    if (_.str.include(login, '@')) {
-      if (!auth.is_valid_email(login)) {
-        return Promise.reject(auth.errors.INVALID_EMAIL);
-      }
+  /**
+   * Test for a valid email address
+   *
+   * @param {String} email
+   * @return {Boolean}
+   */
+  auth.isValidEmail = email => validator.isEmail(email);
 
-      query.email = login;
-    } else {
-      if (!auth.is_valid_username(login)) {
-        return Promise.reject(auth.errors.INVALID_USERNAME);
-      }
+  /**
+   * Test for a valid login (username or email address)
+   *
+   * @param {String} login
+   * @return {Boolean}
+   */
+  auth.isValidLogin = login => auth.isValidUsername(login) || auth.isValidEmail(login);
 
-      query.username = login;
+  /**
+   * Test for a valid password
+   *
+   * The only requirements for a valid password are that it must contain at
+   * least one non-whitespace character, be at least 4 characters and at most
+   * 512 characters.  Users are otherwise free to shoot themselves in the foot.
+   *
+   * @param {String} plaintext
+   * @return {Boolean}
+   */
+  auth.isValidPassword = plaintext => _.isString(plaintext) && /^(?=.*\S).{4,512}$/.test(plaintext);
+
+  /**
+   * Get a user from a login (username or email)
+   *
+   * @param {String} login
+   * @return {Promise<Object|null>}
+   */
+  auth.getUserByLogin = login => {
+    if (!auth.isValidLogin(login)) {
+      return Promise.reject(new Error('invalid login'));
     }
 
-    return auth.users.crud.find(query).then(function(users) {
-      return users[0] || null;
-    });
+    return auth.users.crud.find({
+      [_.str.include(login, '@') ? 'email' : 'username']: login
+    }).then(users => users[0] || null);
   };
 
   /**
-   * Get a user from a login and plaintext password
+   * Check if any username or email already exists in the database
    *
-   * @param {String} login - username or email
-   * @param {String} plaintext - password to check
-   * @return {Promise}
+   * @param {Array<String>} logins
+   * @return {Promise<Boolean>} true if any login exists, false otherwise
    */
-  auth.get_user_by_login_and_password = function(login, plaintext) {
-    return auth.get_user_by_login(login).then(function(user) {
-      if (!user) {
-        throw new Error(auth.errors.USER_NOT_FOUND);
-      }
-
-      if (user.disabled) {
-        throw new Error(auth.errors.USER_IS_DISABLED);
-      }
-
-      return auth.verify_hash(plaintext, user.hash).then(function() {
-        return user;
-      });
-    });
+  auth.loginExists = logins => {
+    let users = utils.ensure_array(logins).map(auth.getUserByLogin);
+    return Promise.all(users).then(res => !!_.find(res));
   };
 
   /**
@@ -181,32 +170,32 @@ define(function(require) {
    * @param {String} user.confirm - plaintext password confirmation
    * @return {Promise} resolves to new user record on success
    */
-  auth.create_user = function(user = {}) {
+  auth.createUser = (user = {}) => {
     let username = _.str.clean(user.username);
     let email = _.str.clean(user.email);
 
-    if (!auth.is_valid_username(username)) {
-      throw new Error('invalid username');
+    if (!auth.isValidUsername(username)) {
+      return Promise.reject(new Error('invalid username'));
     }
 
-    if (!auth.is_valid_email(email)) {
-      throw new Error('invalid email');
+    if (!auth.isValidEmail(email)) {
+      return Promise.reject(new Error('invalid email'));
     }
 
     if (user.password !== user.confirm) {
-      throw new Error('passwords do not match');
+      return Promise.reject(new Error('passwords do not match'));
     }
 
-    if (!auth.is_valid_password(user.password)) {
+    if (!auth.isValidPassword(user.password)) {
       throw new Error('invalid password');
     }
 
-    return auth.login_exists(username, email).then(function(exists) {
+    return auth.loginExists([username, email]).then(exists => {
       if (exists) {
         throw new Error('username or email already exists');
       }
 
-      return auth.generate_hash(user.password).then(function(hash) {
+      return auth.scrypt(user.password).then(hash => {
         return auth.users.crud.create({
           username: username,
           email: email,
@@ -214,124 +203,6 @@ define(function(require) {
         });
       });
     });
-  };
-
-  /**
-   * Change the password for a user
-   * @param {String} login - username or email
-   * @param {String} current - current plaintext password
-   * @param {String} plaintext - new plaintext password
-   * @param {String} confirm - new plaintext password confirmation
-   * @return {Promise}
-   */
-  auth.change_password_for_login = function(login, current, plaintext, confirm) {
-    return auth.get_user_by_login(login).then(function(user) {
-      user._.password = {
-        current: current,
-        plaintext: plaintext,
-        confirm: confirm
-      };
-
-      return auth.users.crud.update(user); // FIXME: needs Rudiment support
-    });
-
-
-
-    username = _.str.clean(username);
-
-    if (!auth.is_valid_username) {
-      return Promise.reject(auth.errors.INVALID_USERNAME);
-    }
-
-    if (plaintext !== confirm) {
-      return Promise.reject(auth.errors.PASSWORDS_DO_NOT_MATCH);
-    }
-
-    if (!auth.is_valid_password) {
-      return Promise.reject(auth.errors.INVALID_PASSWORD);
-    }
-
-    return auth.get_user_by_login_and_password(username, current).then(function(user) {
-      return auth.generate_hash(plaintext).then(function(hash) {
-        return db.change_password_hash(username, hash);
-      });
-    });
-  };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  /**
-   * Determine if a session timestamp is expired
-   *
-   * @param {Number | String} timestamp - a Unix timestamp
-   * @return {Boolean} true if timestamp is expired, false otherwise
-   */
-  auth.timestamp_is_expired = function(timestamp) {
-    var max = config.auth.hours * 3600;
-    var age = utils.timestamp_age(timestamp);
-
-    return age < 0 || age > max;
-  };
-
-  /**
-   * Clean up a potential username string
-   *
-   * @param {String} username - a string to treat as username input
-   * @return {String} username with only alphanumeric characters and underscores
-   */
-  auth.sanitize_username = function(username) {
-    username = utils.ensure_string(username).toLowerCase();
-    return username.replace(/[^a-z0-9_]/ig, '');
-  };
-
-  /**
-   * Test for a valid username
-   *
-   * @param {String} username - a string to treat as username input
-   * @return {Boolean} true if username is valid, false otherwise
-   */
-  auth.is_valid_username = function(username) {
-    return auth.sanitize_username(username) === username &&
-      username.length >= 3 && username.length <= 64;
-  };
-
-  /**
-   * Test for a valid email address
-   *
-   * @param {String} email - a string to treat as email address input
-   * @return {Boolean} true if email is valid, false otherwise
-   */
-  auth.is_valid_email = function(email) {
-    return validator.isEmail(email);
-  };
-
-  /**
-   * Test for a valid password
-   *
-   * The only requirements for a valid password are that it must contain at
-   * least one non-whitespace character, be at least 4 characters and at most
-   * 1024 characters.  Users are otherwise free to shoot themselves in the foot.
-   *
-   * @param {String} plaintext - a string to treat as password input
-   * @return {Boolean} true if password is valid, false otherwise
-   */
-  auth.is_valid_password = function(plaintext) {
-    return _.isString(plaintext) && /^(?=.*\S).{4,1024}$/.test(plaintext);
   };
 
   return auth;
