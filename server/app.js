@@ -37,7 +37,7 @@ define(require => {
     res.render('index', {
       prod: config.prod,
       rev: config.build.rev,
-      username: auth.sanitize_username(user.username),
+      username: auth.cleanUsername(user.username),
       mode: { mobile: !!req.mobile, phone: !!req.phone, tablet: !!req.tablet },
       themes: config.themes
     });

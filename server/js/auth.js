@@ -111,7 +111,7 @@ define(require => {
    * @param {String} email
    * @return {Boolean}
    */
-  auth.isValidEmail = email => validator.isEmail(email);
+  auth.isValidEmail = email => _.isString(email) ? validator.isEmail(email) : false;
 
   /**
    * Test for a valid login (username or email address)
@@ -134,19 +134,25 @@ define(require => {
   auth.isValidPassword = plaintext => _.isString(plaintext) && /^(?=.*\S).{4,512}$/.test(plaintext);
 
   /**
-   * Get a user from a login (username or email)
+   * Get an unauthenticated user from a login (username or email)
    *
    * @param {String} login
-   * @return {Promise<Object|null>}
+   * @return {Promise<Object>}
    */
-  auth.getUserByLogin = login => {
+  auth.getUnauthenticatedUser = login => {
     if (!auth.isValidLogin(login)) {
       return Promise.reject(new Error('invalid login'));
     }
 
     return auth.users.crud.find({
       [_.str.include(login, '@') ? 'email' : 'username']: login
-    }).then(users => users[0] || null);
+    }).then(users => {
+      if (!users || !users.length) {
+        throw new Error('invalid login');
+      }
+
+      return _.first(users);
+    });
   };
 
   /**
@@ -156,23 +162,45 @@ define(require => {
    * @return {Promise<Boolean>} true if any login exists, false otherwise
    */
   auth.loginExists = logins => {
-    let users = utils.ensure_array(logins).map(auth.getUserByLogin);
+    let users = utils.ensure_array(logins).map(auth.getUnauthenticatedUser);
     return Promise.all(users).then(res => !!_.find(res));
+  };
+
+  /**
+   * Get an authenticated user from a login and password
+   *
+   * @param {String} login
+   * @param {String} password
+   * @return {Promise<Object>}
+   */
+  auth.getAuthenticatedUser = (login, password) => {
+    return auth.getUnauthenticatedUser(login).then(user => {
+      if (!user) {
+        throw new Error('invalid credentials');
+      }
+
+      return auth.verifyHash(password, user.hash).then(authenticated => {
+        if (!authenticated) {
+          throw new Error('invalid credentials');
+        }
+
+        return user;
+      });
+    });
   };
 
   /**
    * Create a new user with a plaintext password
    *
-   * @param {Object} user
-   * @param {String} user.username - requested username
-   * @param {String} user.email - requested email address
-   * @param {String} user.password - plaintext password
-   * @param {String} user.confirm - plaintext password confirmation
-   * @return {Promise} resolves to new user record on success
+   * @param {String} username - requested username
+   * @param {String} email - requested email address
+   * @param {String} password - plaintext password
+   * @param {String} confirm - plaintext password confirmation
+   * @return {Promise<Object>}
    */
-  auth.createUser = (user = {}) => {
-    let username = _.str.clean(user.username);
-    let email = _.str.clean(user.email);
+  auth.createUser = (username, email, password, confirm) => {
+    username = _.str.clean(username);
+    email = _.str.clean(email);
 
     if (!auth.isValidUsername(username)) {
       return Promise.reject(new Error('invalid username'));
@@ -182,11 +210,11 @@ define(require => {
       return Promise.reject(new Error('invalid email'));
     }
 
-    if (user.password !== user.confirm) {
+    if (password !== confirm) {
       return Promise.reject(new Error('passwords do not match'));
     }
 
-    if (!auth.isValidPassword(user.password)) {
+    if (!auth.isValidPassword(password)) {
       throw new Error('invalid password');
     }
 
@@ -195,7 +223,7 @@ define(require => {
         throw new Error('username or email already exists');
       }
 
-      return auth.scrypt(user.password).then(hash => {
+      return auth.scrypt(password).then(hash => {
         return auth.users.crud.create({
           username: username,
           email: email,

@@ -7,10 +7,16 @@ define(require => {
 
   const auth = require('auth');
 
-  let signUp = form => auth.createUser(form).then(user => {
-    return user.username;
-  });
+  let createUser = req => {
+    return auth.createUser(req.username, req.email, req.password, req.confirm).then(user => {
+      return user.username;
+    });
+  };
 
-  return { signUp };
+  let authenticateUser = req => {
+    return auth.getAuthenticatedUser(req.login, req.password).then(user => user.username);
+  };
+
+  return { createUser, authenticateUser };
 
 });
